@@ -25,7 +25,7 @@ pip install tqdm
 
 |  Version   | Epochs | Pose mAP |                                                                                       Download |
 |:----------:|:------:|---------:|-----------------------------------------------------------------------------------------------:|
-| v8_n_pose  |  1000  |        - | [model](https://github.com/jahongir7174/YOLOv8-pt/releases/download/v0.0.1-alpha/v8_n_pose.pt) |
+| v8_n_pose  |  1000  |     50.2 |                                                                     [model](./weights/best.pt) |
 | v8_n_pose* |  1000  |     50.5 | [model](https://github.com/jahongir7174/YOLOv8-pt/releases/download/v0.0.1-alpha/v8_n_pose.pt) |
 | v8_s_pose* |  1000  |     59.5 | [model](https://github.com/jahongir7174/YOLOv8-pt/releases/download/v0.0.1-alpha/v8_s_pose.pt) |
 | v8_m_pose* |  1000  |     63.8 | [model](https://github.com/jahongir7174/YOLOv8-pt/releases/download/v0.0.1-alpha/v8_m_pose.pt) |
