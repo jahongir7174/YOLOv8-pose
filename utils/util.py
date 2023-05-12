@@ -6,7 +6,7 @@ import time
 import numpy
 import torch
 import torchvision
-from torch.nn.functional import cross_entropy, one_hot
+from torch.nn.functional import cross_entropy
 
 KPT_SIGMA = numpy.array([.26, .25, .25,
                          .35, .35, .79,
@@ -400,16 +400,17 @@ class Assigner(torch.nn.Module):
         # (b, max_num_obj, top_k)
         top_k_metrics, top_k_indices = torch.topk(align_metric, self.top_k, dim=-1, largest=True)
         if top_k_mask is None:
-            top_k_mask = (top_k_metrics.max(-1, keepdim=True) > self.eps).tile([1, 1, self.top_k])
+            top_k_mask = (top_k_metrics.max(-1, keepdim=True)[0] > self.eps).expand_as(top_k_indices)
         # (b, max_num_obj, top_k)
-        top_k_indices[~top_k_mask] = 0
+        top_k_indices.masked_fill_(~top_k_mask, 0)
         # (b, max_num_obj, top_k, h*w) -> (b, max_num_obj, h*w)
-        mask_top_k = torch.zeros(align_metric.shape, dtype=torch.long, device=align_metric.device)
-        for it in range(self.top_k):
-            mask_top_k += one_hot(top_k_indices[:, :, it], num_anchors)
+        count = torch.zeros(align_metric.shape, dtype=torch.int8, device=top_k_indices.device)
+        ones = torch.ones_like(top_k_indices[:, :, :1], dtype=torch.int8, device=top_k_indices.device)
+        for k in range(self.top_k):
+            count.scatter_add_(-1, top_k_indices[:, :, k:k + 1], ones)
         # filter invalid bboxes
-        mask_top_k = torch.where(mask_top_k > 1, 0, mask_top_k)
-        mask_top_k = mask_top_k.to(align_metric.dtype)
+        count.masked_fill_(count > 1, 0)
+        mask_top_k = count.to(align_metric.dtype)
         # merge all mask to a final mask, (b, max_num_obj, h*w)
         mask_pos = mask_top_k * mask_in_gts * mask_gt
         # (b, n_max_boxes, h*w) -> (b, h*w)
@@ -417,9 +418,9 @@ class Assigner(torch.nn.Module):
         if fg_mask.max() > 1:  # one anchor is assigned to multiple gt_bboxes
             mask_multi_gts = (fg_mask.unsqueeze(1) > 1).repeat([1, max_boxes, 1])  # (b, n_max_boxes, h*w)
             max_overlaps_idx = overlaps.argmax(1)  # (b, h*w)
-            is_max_overlaps = one_hot(max_overlaps_idx, max_boxes)  # (b, h*w, n_max_boxes)
-            is_max_overlaps = is_max_overlaps.permute(0, 2, 1).to(overlaps.dtype)  # (b, n_max_boxes, h*w)
-            mask_pos = torch.where(mask_multi_gts, is_max_overlaps, mask_pos)  # (b, n_max_boxes, h*w)
+            is_max_overlaps = torch.zeros(mask_pos.shape, dtype=mask_pos.dtype, device=mask_pos.device)
+            is_max_overlaps.scatter_(1, max_overlaps_idx.unsqueeze(1), 1)
+            mask_pos = torch.where(mask_multi_gts, is_max_overlaps, mask_pos).float()  # (b, n_max_boxes, h*w)
             fg_mask = mask_pos.sum(-2)
         # find each grid serve which gt(index)
         target_gt_idx = mask_pos.argmax(-2)  # (b, h*w)
@@ -434,7 +435,10 @@ class Assigner(torch.nn.Module):
 
         # assigned target scores
         target_labels.clamp(0)
-        target_scores = one_hot(target_labels, self.num_classes)  # (b, h*w, 80)
+        target_scores = torch.zeros((target_labels.shape[0], target_labels.shape[1], self.num_classes),
+                                    dtype=torch.int64,
+                                    device=target_labels.device)  # (b, h*w, 80)
+        target_scores.scatter_(2, target_labels.unsqueeze(-1), 1)
         fg_scores_mask = fg_mask[:, :, None].repeat(1, 1, self.num_classes)  # (b, h*w, 80)
         target_scores = torch.where(fg_scores_mask > 0, target_scores, 0)
 
