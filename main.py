@@ -341,20 +341,38 @@ def demo(args):
             for output in outputs:
                 output = output.clone()
                 if len(output):
-                    output = output[:, 6:].view(len(output), *model.head.kpt_shape)
+                    box_output = output[:, :6]
+                    kps_output = output[:, 6:].view(len(output), *model.head.kpt_shape)
                 else:
-                    output = output[:, 6:]
+                    box_output = output[:, :6]
+                    kps_output = output[:, 6:]
 
                 r = min(image.shape[2] / shape[0], image.shape[3] / shape[1])
 
-                output[..., 0] -= (image.shape[3] - shape[1] * r) / 2  # x padding
-                output[..., 1] -= (image.shape[2] - shape[0] * r) / 2  # y padding
-                output[..., 0] /= r
-                output[..., 1] /= r
-                output[..., 0].clamp_(0, shape[1])  # x
-                output[..., 1].clamp_(0, shape[0])  # y
+                box_output[:, [0, 2]] -= (image.shape[3] - shape[1] * r) / 2  # x padding
+                box_output[:, [1, 3]] -= (image.shape[2] - shape[0] * r) / 2  # y padding
+                box_output[:, :4] /= r
 
-                for kpt in reversed(output):
+                box_output[:, 0].clamp_(0, shape[1])  # x
+                box_output[:, 1].clamp_(0, shape[0])  # y
+                box_output[:, 2].clamp_(0, shape[1])  # x
+                box_output[:, 3].clamp_(0, shape[0])  # y
+
+                kps_output[..., 0] -= (image.shape[3] - shape[1] * r) / 2  # x padding
+                kps_output[..., 1] -= (image.shape[2] - shape[0] * r) / 2  # y padding
+                kps_output[..., 0] /= r
+                kps_output[..., 1] /= r
+                kps_output[..., 0].clamp_(0, shape[1])  # x
+                kps_output[..., 1].clamp_(0, shape[0])  # y
+
+                for box in box_output:
+                    box = box.cpu().numpy()
+                    x1, y1, x2, y2, score, index = box
+                    cv2.rectangle(frame,
+                                  (int(x1), int(y1)),
+                                  (int(x2), int(y2)),
+                                  (0, 255, 0), 2)
+                for kpt in reversed(kps_output):
                     for i, k in enumerate(kpt):
                         color_k = [int(x) for x in kpt_color[i]]
                         x_coord, y_coord = k[0], k[1]
